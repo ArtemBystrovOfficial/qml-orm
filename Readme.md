@@ -1,10 +1,13 @@
 ### Оглавление
 
-1. [Введение](#введение)
-2. [Пример использования](#пример-использования)
-3. [Особенности](#особенности)
-4. [Что под капотом](#что-под-капотом)
-5. [Некоторые важные замечания](#некоторые-важные-замечания)
+- [Оглавление](#оглавление)
+- [Введение](#введение)
+  - [Плюсы:](#плюсы)
+  - [Минусы:](#минусы)
+- [Пример использования](#пример-использования)
+- [Особенности](#особенности)
+- [Что под капотом](#что-под-капотом)
+- [Некоторые важные замечания](#некоторые-важные-замечания)
 
 ### Введение
 
@@ -106,58 +109,58 @@ qmlRegisterSingletonType<ColorSchemeModel>(REGISTER_QML_TYPES, "ColorSchemeModel
 ```c++
 namespace null_values {
 
-	template <class T>
-	T get() {
-		if constexpr (std::is_same_v<T, int>)
-			return std::numeric_limits<int>::min();
-		if constexpr (std::is_same_v<T, std::string>)
-			return "_null";
-		if constexpr (std::is_same_v<T, bool>)
-			return "false";
-	}
+    template <class T>
+    T get() {
+        if constexpr (std::is_same_v<T, int>)
+            return std::numeric_limits<int>::min();
+        if constexpr (std::is_same_v<T, std::string>)
+            return "_null";
+        if constexpr (std::is_same_v<T, bool>)
+            return "false";
+    }
 
-	bool is_null(const auto & x) {
-		return get<std::remove_cvref_t<decltype(x)>>() == x;
-	}
+    bool is_null(const auto & x) {
+        return get<std::remove_cvref_t<decltype(x)>>() == x;
+    }
 
-	template<class... T>
-	void _fill_tuple_null(std::tuple<T...> & tuple) {
-		std::apply([&](auto&... elem) {
-			((elem = get<T>()), ...);
-		}, tuple);
-	}
+    template<class... T>
+    void _fill_tuple_null(std::tuple<T...> & tuple) {
+        std::apply([&](auto&... elem) {
+            ((elem = get<T>()), ...);
+        }, tuple);
+    }
 
 }
 
 template <class D, class Tuple> requires std::_Is_specialization_v<Tuple, std::tuple>
 struct BasicTypeDB{
 
-	using tuple_t = Tuple;
-	static constexpr int tuple_size = std::tuple_size_v<Tuple>;
+    using tuple_t = Tuple;
+    static constexpr int tuple_size = std::tuple_size_v<Tuple>;
 
-	BasicTypeDB() {
-		null_values::_fill_tuple_null(tp);
-	}
+    BasicTypeDB() {
+        null_values::_fill_tuple_null(tp);
+    }
 
 // virtual abstract
-	static std::string tuple_info_name() { return D::tuple_info_name_override(); }
-	static std::string field_info(int field) { return  D::field_info_override(field); }
+    static std::string tuple_info_name() { return D::tuple_info_name_override(); }
+    static std::string field_info(int field) { return  D::field_info_override(field); }
 
 //just vritual static
-	static std::string tuple_info_custom_select() {
-		if constexpr ( requires{ D::tuple_info_custom_select_override(); })
-			return D::tuple_info_custom_select_override();
-		else
-			return "";
-	}
-	static bool auto_increment_first() {
-		if constexpr ( requires{ D::auto_increment_first_override(); })
-			return D::auto_increment_first_override();
-		else
-			return true;
-	}
+    static std::string tuple_info_custom_select() {
+        if constexpr ( requires{ D::tuple_info_custom_select_override(); })
+            return D::tuple_info_custom_select_override();
+        else
+            return "";
+    }
+    static bool auto_increment_first() {
+        if constexpr ( requires{ D::auto_increment_first_override(); })
+            return D::auto_increment_first_override();
+        else
+            return true;
+    }
 
-	Tuple tp;
+    Tuple tp;
 };
 ```
 
@@ -168,39 +171,39 @@ void Update(const Tuple&, const std::bitset<TupSize>&, ExceptionHandler& eh);
 
 template<typename Tuple, std::size_t TupSize> requires CustomTupleC<Tuple>
 inline void DataBaseAccess::Update(const Tuple& tp, const std::bitset<TupSize>& update_set, ExceptionHandler& eh) {
-	std::string query = std::format(
-		"UPDATE {} SET {} WHERE {} = {}",
-		Tuple::tuple_info_name(),
-		updateImpl(tp, update_set, std::make_index_sequence<TupSize>{}),
-		Tuple::field_info(0),
-		convertType(std::get<0>(tp.tp))
-	);
-	try {
-		pqxx::work w(m_conn);
-		w.exec(query);
-		w.commit(); //TODO UNDO LIST
-		return;
-	} 
-	catch (const std::exception& exp) {
-		eh.what = std::format("update: {}",exp.what());
-	}
-	catch (...) {}
+    std::string query = std::format(
+        "UPDATE {} SET {} WHERE {} = {}",
+        Tuple::tuple_info_name(),
+        updateImpl(tp, update_set, std::make_index_sequence<TupSize>{}),
+        Tuple::field_info(0),
+        convertType(std::get<0>(tp.tp))
+    );
+    try {
+        pqxx::work w(m_conn);
+        w.exec(query);
+        w.commit(); //TODO UNDO LIST
+        return;
+    } 
+    catch (const std::exception& exp) {
+        eh.what = std::format("update: {}",exp.what());
+    }
+    catch (...) {}
 
-	eh.is_error_ = true;
+    eh.is_error_ = true;
 }
 
 template<typename Tuple, std::size_t ...Is>
 inline std::string DataBaseAccess::updateImpl(const Tuple& tp, const std::bitset<sizeof...(Is)>& update_set, std::index_sequence<Is...>) {
-	size_t index = 0;
-	std::string out;
-	auto printElem = [&index, &out, &update_set, this](const auto& x) {
-		if (update_set[index]) 
-			out += std::format("{} = {} , ", Tuple::field_info(index), convertType(x));
-		index++;
-	};
-	(printElem(std::get<Is>(tp.tp)), ...);
-	out.erase(out.end() - 2, out.end());
-	return out;
+    size_t index = 0;
+    std::string out;
+    auto printElem = [&index, &out, &update_set, this](const auto& x) {
+        if (update_set[index]) 
+            out += std::format("{} = {} , ", Tuple::field_info(index), convertType(x));
+        index++;
+    };
+    (printElem(std::get<Is>(tp.tp)), ...);
+    out.erase(out.end() - 2, out.end());
+    return out;
 }
 ```
 
