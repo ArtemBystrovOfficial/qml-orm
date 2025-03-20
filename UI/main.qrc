@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/">
+        <file>TaskHeader.qml</file>
+        <file>TaskList.qml</file>
+        <file>MainWindow.qml</file>
+        <file>MainToolBar.qml</file>
+        <file>EditArea.qml</file>
+    </qresource>
+</RCC>
