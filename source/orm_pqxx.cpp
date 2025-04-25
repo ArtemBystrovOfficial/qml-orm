@@ -21,5 +21,12 @@ std::string DataBaseAccess::sortRule(const FilterSelectPack& pack) {
 }
 
 DataBaseAccess::DataBaseAccess(const std::string& connection_query)
-	: m_conn(connection_query.c_str()) {}
+	: m_conn(connection_query.c_str()), m_conn_litstener(connection_query.c_str()), class_being_destroyed(false) {
+	sync_listener = std::make_unique<ChangeListener>(m_conn.backendpid(), m_conn_litstener);
+	std::thread([&]() {
+		while (!class_being_destroyed.load()) {
+			m_conn_litstener.await_notification(1, 0);
+		}
+	}).detach();
+}
 

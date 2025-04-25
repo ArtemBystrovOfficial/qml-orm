@@ -5,59 +5,92 @@
 #include <bitset>
 #include <orm_pqxx.hpp>
 #include <QQmlApplicationEngine>
+#include <memory>
+#include <unordered_map>
+#include <functional>
+#include <tuple>
+#include <set>
 
-#define INT_NULL_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY, DEFAULT) \
-    Q_PROPERTY(int PROPERTY_NAME READ PROPERTY_NAME WRITE set_##PROPERTY_NAME NOTIFY PROPERTY_NAME##Changed) \
-    Q_SIGNAL void PROPERTY_NAME##Changed(); \
-    int PROPERTY_NAME() const { \
-        auto& val = std::get<INDEX_PROPERTY>(m_data.tp); \
-        return null_values::is_null(val) ? DEFAULT : val; \
+#define INT_NULL_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY, DEFAULT)                                                \
+    Q_PROPERTY(int PROPERTY_NAME READ PROPERTY_NAME WRITE set_##PROPERTY_NAME NOTIFY PROPERTY_NAME##Changed)     \
+    Q_SIGNAL void PROPERTY_NAME##Changed();                                                                      \
+    int PROPERTY_NAME() const {                                                                                  \
+        auto& val = std::get<INDEX_PROPERTY>(m_data.tp);                                                         \
+        return null_values::is_null(val) ? DEFAULT : val;                                                        \
     } \
-    void set_##PROPERTY_NAME(int id) { \
-        std::get<INDEX_PROPERTY>(m_data.tp) = id; \
-        m_to_update_.set(INDEX_PROPERTY); \
-        emit PROPERTY_NAME##Changed(); \
+    void set_##PROPERTY_NAME(int id) {                                                                           \
+        std::get<INDEX_PROPERTY>(m_data.tp) = id;                                                                \
+        m_to_update_.set(INDEX_PROPERTY);                                                                        \
+        emit PROPERTY_NAME##Changed();                                                                           \
     }
 
-#define INT_PRIMARY_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY) \
-    Q_PROPERTY(int PROPERTY_NAME READ PROPERTY_NAME CONSTANT) \
-    int PROPERTY_NAME() const { \
-        return std::get<INDEX_PROPERTY>(m_data.tp); \
+#define INT_PRIMARY_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY)                                                      \
+    Q_PROPERTY(int PROPERTY_NAME READ PROPERTY_NAME CONSTANT)                                                    \
+    int PROPERTY_NAME() const {                                                                                  \
+        return std::get<INDEX_PROPERTY>(m_data.tp);                                                              \
     }
 
 #define STRING_NULL_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY, DEFAULT) \
     Q_PROPERTY(QString PROPERTY_NAME READ PROPERTY_NAME WRITE set_##PROPERTY_NAME NOTIFY PROPERTY_NAME##Changed) \
-    Q_SIGNAL void PROPERTY_NAME##Changed(); \
-    QString PROPERTY_NAME() const { \
-        auto& val = std::get<INDEX_PROPERTY>(m_data.tp); \
-        return null_values::is_null(val) ? DEFAULT : QString::fromStdString(val); \
-    } \
-    void set_##PROPERTY_NAME(const QString &str) { \
-        std::get<INDEX_PROPERTY>(m_data.tp) = str.toStdString(); \
-        m_to_update_.set(INDEX_PROPERTY); \
-        emit PROPERTY_NAME##Changed(); \
+    Q_SIGNAL void PROPERTY_NAME##Changed();                                                                      \
+    QString PROPERTY_NAME() const {                                                                              \
+        auto& val = std::get<INDEX_PROPERTY>(m_data.tp);                                                         \
+        return null_values::is_null(val) ? DEFAULT : QString::fromStdString(val);                                \
+    }                                                                                                            \
+    void set_##PROPERTY_NAME(const QString &str) {                                                               \
+        std::get<INDEX_PROPERTY>(m_data.tp) = str.toStdString();                                                 \
+        m_to_update_.set(INDEX_PROPERTY);                                                                        \
+        emit PROPERTY_NAME##Changed();                                                                           \
     }
 
-#define BOOL_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY) \
-    Q_PROPERTY(bool PROPERTY_NAME READ PROPERTY_NAME WRITE set_##PROPERTY_NAME NOTIFY PROPERTY_NAME##Changed) \
-    Q_SIGNAL void PROPERTY_NAME##Changed(); \
-    bool PROPERTY_NAME() const { \
-        return std::get<INDEX_PROPERTY>(m_data.tp); \
-    } \
-    void set_##PROPERTY_NAME(bool is) { \
-        std::get<INDEX_PROPERTY>(m_data.tp) = is; \
-        m_to_update_.set(INDEX_PROPERTY); \
-        emit PROPERTY_NAME##Changed(); \
+#define BOOL_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY)                                                            \
+    Q_PROPERTY(bool PROPERTY_NAME READ PROPERTY_NAME WRITE set_##PROPERTY_NAME NOTIFY PROPERTY_NAME##Changed)   \
+    Q_SIGNAL void PROPERTY_NAME##Changed();                                                                     \
+    bool PROPERTY_NAME() const {                                                                                \
+        return std::get<INDEX_PROPERTY>(m_data.tp);                                                             \
+    }                                                                                                           \
+    void set_##PROPERTY_NAME(bool is) {                                                                         \
+        std::get<INDEX_PROPERTY>(m_data.tp) = is;                                                               \
+        m_to_update_.set(INDEX_PROPERTY);                                                                       \
+        emit PROPERTY_NAME##Changed();                                                                          \
     }
 
-#define META_MODEL_QML_FUNCTIONS \
-public slots: \
-    Q_INVOKABLE QString Add(meta_type_t* obj = nullptr) { QString er = _add(obj); if(er.isEmpty()) emit updated(); return er; } \
+#define NESTED_CLASS                                                                                            \
+    Q_SIGNAL void nestedObjectsChanged();                                                                       \
+    Q_INVOKABLE void callNestedSignal() {                                                                       \
+        emit nestedObjectsChanged();                                                                            \
+    }
+
+#define REGISTER_NESTED_OBJECT(OBJECT_TYPE, VALUE, INDEX_PROPERTY)                                              \
+    addNestedCallback<INDEX_PROPERTY, OBJECT_TYPE>(ptr_##VALUE)
+
+#define NESTED_OBJECT(PROPERTY_CLASS, PROPERTY_NAME, INDEX_PROPERTY)                                            \
+    Q_PROPERTY(PROPERTY_CLASS* PROPERTY_NAME READ PROPERTY_NAME NOTIFY nestedObjectsChanged)                    \
+public:                                                                                                         \
+    PROPERTY_CLASS* PROPERTY_NAME() const {                                                                     \
+        return ptr_##PROPERTY_NAME.get();                                                                       \
+    }                                                                                                           \
+    Q_INVOKABLE void replaceById##PROPERTY_CLASS(int n) {                                                       \
+        std::get<INDEX_PROPERTY>(m_data.tp) = n;                                                                \
+        syncAllNestedObjects();                                                                                 \
+        m_to_update_.set(INDEX_PROPERTY);                                                                       \
+        notifyNestedObjectsChanged();                                                                           \
+    }                                                                                                           \
+private:                                                                                                        \
+    std::unique_ptr<PROPERTY_CLASS> ptr_##PROPERTY_NAME;                                                        \
+public:
+
+#define META_MODEL_QML_FUNCTIONS                                                                                                                                 \
+public slots:                                                                                                                                                    \
+    Q_INVOKABLE QString Add(meta_type_t* obj = nullptr) { QString er = _add(obj); if(er.isEmpty()) emit updated(); return er; }                                  \
     Q_INVOKABLE QString CommitChanges(bool is_not_update = false) { QString er = _update_all_to_bd(is_not_update); if(er.isEmpty()) emit updated(); return er; } \
-    Q_INVOKABLE QString Delete(int index) { QString er = _remove(index); if(er.isEmpty()) emit updated(); return er; } \
-    Q_INVOKABLE meta_type_t* itemAt(int index) { return item_at(index); } \
-    Q_INVOKABLE meta_type_t* itemById(int id) { return item_by_id(id); } \
-public: \
+    Q_INVOKABLE QString Delete(int index) { QString er = _remove(index); if(er.isEmpty()) emit updated(); return er; }                                           \
+    Q_INVOKABLE meta_type_t* itemAt(int index) { return item_at(index); }                                                                                        \
+    Q_INVOKABLE meta_type_t* itemById(int id) { return item_by_id(id); }                                                                                         \
+    Q_INVOKABLE void RouteSyncModels(const QString& table, const QString& action, const QString& id) {                                                           \
+        _RouteSyncModels(table, action, id);                                                                                                                     \
+    }                                                                                                                                                            \
+public:                                                                                                                                                          \
     Q_SIGNAL void updated(); 
 
 //#define META_MODEL_REGISTER(CHILD_NAME) \
@@ -66,12 +99,10 @@ public: \
 template <class Tuple>
 class MetaQmlObject : public QObject {
 public:
-
     using tuple_t = Tuple;
     using update_pool = std::bitset<Tuple::tuple_size>;
 
     MetaQmlObject(QObject* parent = nullptr) : QObject(parent) {};
-
 
     const Tuple& getData() const { return m_data; }
     void setData(const Tuple& data) { m_data = data; }
@@ -79,8 +110,83 @@ public:
     bool isSomeToUpdate() { return m_to_update_.any(); }
     update_pool unload() { update_pool out = m_to_update_; m_to_update_.reset(); return out; }
 
+    void syncAllNestedObjects() {
+        for (auto & foo : nested_objects_func_update_) {
+            foo();
+        }
+    }
+
+    void pushAllNestedObjects() {
+        for (auto& foo : nested_objects_func_push_) {
+            foo();
+        }
+    }
+
+    void updateChildByRule(size_t id, const std::string& str) {
+        nested_object_update_scope_.insert({ id,str });
+        syncAllNestedObjects();
+        notifyNestedObjectsChanged();
+    }
+
+    void notifyNestedObjectsChanged() {
+        const QMetaObject* mo = metaObject();
+        if (mo->indexOfSignal("nestedObjectsChanged()") != -1) {
+            QMetaObject::invokeMethod(
+                this,
+                "nestedObjectsChanged",
+                Qt::DirectConnection
+            );
+        }
+    }
+
     ~MetaQmlObject() {}
 protected:
+    template<size_t N, typename T>
+    void addNestedCallback(std::unique_ptr<T>& value) {
+        //get
+        nested_objects_func_update_.push_back([this, &value]() {
+            size_t id = std::get<N>(m_data.tp);
+
+            auto it = nested_object_update_scope_.find({ id, T::tuple_t::tuple_info_name() });
+
+            if (nested_object_update_scope_.empty() or (!nested_object_update_scope_.empty() && it != nested_object_update_scope_.end())) {
+                DataBaseAccess::ExceptionHandler eh;
+                auto opt = DataBaseAccess::Instanse().specialSelect1<T::tuple_t::tuple_t>(
+                    std::format("SELECT * FROM {} WHERE id = ",
+                        T::tuple_t::tuple_info_name()
+                    ) + std::to_string(id), eh
+                    );
+                if (eh || !opt.has_value()) {
+                    value.reset(nullptr);
+                }
+                else {
+                    auto new_object = std::make_unique<T>();
+                    typename T::tuple_t tuple;
+                    tuple.tp = *opt;
+                    new_object->setData(tuple);
+                    value = std::move(new_object);
+                }
+                if(!nested_object_update_scope_.empty())
+                    nested_object_update_scope_.erase(it);
+            }
+        });
+        //update to bd
+        nested_objects_func_push_.push_back([this, &value]() {
+            size_t id = std::get<N>(m_data.tp);
+            if (value->isSomeToUpdate()) {
+                DataBaseAccess::ExceptionHandler eh;
+                DataBaseAccess::Instanse().Update(value->getData(), value->unload(), eh);
+                if (eh) {
+                    std::cout << eh.what << std::endl;
+                }
+            }
+        });
+    }
+
+    std::vector<std::function<void()>> nested_objects_func_update_;
+    std::vector<std::function<void()>> nested_objects_func_push_;
+    std::set<std::pair<size_t, std::string>> nested_object_update_scope_;
+
     Tuple m_data;
     update_pool m_to_update_;
 };
@@ -109,14 +215,17 @@ public:
 
      QString _update_all_to_bd(bool is_not_update = false) {
          bool is_any = false;
-         for (auto& elem : m_list)
+         for (auto& elem : m_list) {
              if (elem->isSomeToUpdate()) {
                  DataBaseAccess::Instanse().Update(elem->getData(), elem->unload(), eh);
-                 if(eh)
+                 if (eh)
                      return QString::fromStdString(eh.what);
                  is_any = true;
              }
-         if (is_any && !is_not_update) {
+             elem->pushAllNestedObjects();
+         }
+
+         if (!is_not_update) {
              select_model();
          }
          return QString::fromStdString(eh.what);
@@ -176,7 +285,29 @@ public:
          return roles;
      }
 
+//SYNC MERGED MODEL
+
+     void _RouteSyncModels(const QString& table, const QString& action, const QString& id_q) {
+         //now all model updated for test mode but you can make select_by_id()
+         auto id = std::stoll(id_q.toStdString());
+         auto item = item_by_id(id);
+         if (item && !item->isSomeToUpdate()) { // only for commited instances
+             select_model();
+             return;
+         }
+
+         for (auto& item : m_list) {
+             if (!item->isSomeToUpdate()) { // only for commited instances
+                 item->updateChildByRule(id, table.toStdString()); //update all depended childs
+             }
+         }
+     }
+
 protected:
+
+    void select_by_id(size_t id) {
+
+    }
 
     void select_model() {
         emit beginResetModel();
@@ -189,6 +320,7 @@ protected:
             std::transform(list.begin(), list.end(), m_list.begin(), [this](const tuple_t& task_i) {
                 std::unique_ptr<MetaObject> task_o(std::make_unique<MetaObject>(this));
                 task_o->setData(task_i);
+                task_o->syncAllNestedObjects();
                 return std::move(task_o);
             });
         }

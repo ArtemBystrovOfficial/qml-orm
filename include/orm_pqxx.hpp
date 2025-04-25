@@ -6,14 +6,67 @@
 #include <tuple>
 #include <types.hpp>
 #include <bitset>
+#include <json.hpp>
+#include <atomic>
+#include <functional>
 
 template <class T>
 concept CustomTupleC = std::is_base_of_v<BasicTypeDB<T, typename T::tuple_t>, T>;
 
+using change_listener_callback_t = std::function<void(std::string, std::string, std::string)>;
+
+class ChangeListener : public pqxx::notification_receiver {
+public:
+	// constructor автоматически делает LISTEN на указанный канал
+	ChangeListener(int backend_pid, pqxx::connection& c)
+		: pqxx::notification_receiver{ c, "table_changes" },
+		backend_pid_(backend_pid)
+	{
+		std::cout << "LISTEN " << channel() << ";\n";
+	}
+
+	// override сигнатуры: (payload, backend_pid)
+	void operator()(const std::string& payload,
+		int               backend_pid) override
+	{
+		try {
+			if (backend_pid_ != backend_pid) {
+				auto j = nlohmann::json::parse(payload);
+				std::string table = j.at("table");
+				std::string action = j.at("action");
+				std::string id = j.at("id");
+
+				//todo logs
+				//std::cout
+				//	<< "[PID=" << backend_pid << "] "
+				//	<< "channel=" << channel() << " "
+				//	<< "table=" << table << " "
+				//	<< "action=" << action << " "
+				//	<< "id=" << id << "\n";
+
+				if (call_back_reciver_)
+					call_back_reciver_(std::move(table), std::move(action), std::move(id));
+			}
+		}
+		catch (const std::exception& e) {
+			std::cerr << "Ошибка парсинга payload: "
+				<< e.what() << "; raw=" << payload << "\n";
+		}
+	}
+
+	void SetSyncCallback(change_listener_callback_t call_back_reciver) {
+		call_back_reciver_ = std::move(call_back_reciver); 
+	}
+
+private: 
+	int backend_pid_;
+	change_listener_callback_t call_back_reciver_;
+};
+
 class DataBaseAccess {
 public:
 	static DataBaseAccess& Instanse(const std::string& connection_query = "") {
-		static DataBaseAccess base(connection_query);
+		static DataBaseAccess base( connection_query);
 		return base;
 	}
 
@@ -50,8 +103,20 @@ public:
 
 	template<class T>
 	std::optional <T> specialSelect11(const std::string&, ExceptionHandler& eh);
+
+	template<class T>
+	std::optional <T> specialSelect1(const std::string&, ExceptionHandler& eh);
+
+	~DataBaseAccess() {
+		class_being_destroyed.store(false);
+	}
+
+	void SetSyncCallback(change_listener_callback_t call_back_reciver) {
+		sync_listener->SetSyncCallback(std::move(call_back_reciver));
+	}
+
 private:
-	DataBaseAccess(const std::string& connection_query);
+	DataBaseAccess( const std::string& connection_query);
 //INSERT
 	template <typename Tuple, std::size_t... Is>
 	std::string insertImpl(const Tuple& tp, std::index_sequence<Is...>);
@@ -78,7 +143,10 @@ private:
 		return "Error";
 	}
 
+	std::unique_ptr<ChangeListener> sync_listener;
 	pqxx::connection m_conn;
+	pqxx::connection m_conn_litstener;
+	std::atomic_bool class_being_destroyed;
 };
 
 //SELECT
@@ -218,6 +286,24 @@ inline std::optional <T> DataBaseAccess::specialSelect11(const std::string& quer
 	}
 	catch (const std::exception& exp) {
 		eh.what = std::format("special select: {}",exp.what());
+	}
+	catch (...) {}
+
+	eh.is_error_ = true;
+	return std::nullopt;
+}
+
+template<class T>
+inline std::optional <T> DataBaseAccess::specialSelect1(const std::string& query, ExceptionHandler& eh) {
+	try {
+		T t;
+		pqxx::work w(m_conn);
+		pqxx::row res = w.exec1(query);
+		res.to(t);
+		return t;
+	}
+	catch (const std::exception& exp) {
+		eh.what = std::format("special select: {}", exp.what());
 	}
 	catch (...) {}
 

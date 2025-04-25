@@ -8,14 +8,18 @@ int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
 
     DataBaseAccess::Instanse(
-        "user=root "
-        "host=rc1a-6ekts2fq0umn56q6.mdb.yandexcloud.net "
-        "port=6432 "
-        "password=90009000 "
-        "dbname=task_app2"
+        "user=postgres "
+        "host=127.0.0.1 "
+        "port=5432 "
+        "password=9000 "
+        "dbname=task_app"
     );
-        
+
     QmlSingletonModels::Instanse();
+
+    DataBaseAccess::Instanse().SetSyncCallback([](std::string a1, std::string a2, std::string a3) {
+        QmlSingletonModels::Instanse().RouteSyncModels(a1, a2, a3);
+    });
 
     QQmlApplicationEngine engine;
     engine.load(QUrl(QStringLiteral("qrc:/MainWindow.qml")));

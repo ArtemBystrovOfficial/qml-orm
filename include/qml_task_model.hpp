@@ -1,6 +1,7 @@
 #pragma once
 
 #include <qml_meta.hpp>
+#include <qml_color_schemas.hpp>
 
 using task_tuple_t = std::tuple<int, std::string, std::string, std::string, int, bool>;
 
@@ -28,14 +29,18 @@ struct TaskBasicType : public BasicTypeDB<TaskBasicType, task_tuple_t> {
 class Task : public MetaQmlObject<TaskBasicType> {
     Q_OBJECT
 public:
+    NESTED_CLASS
+
     INT_PRIMARY_PROPERTY(id, 0)
     STRING_NULL_PROPERTY(title, 1, "")
     STRING_NULL_PROPERTY(updatedAt, 2, "")
     STRING_NULL_PROPERTY(desc, 3, "")
-    INT_NULL_PROPERTY(colorSchemeId, 4, -1)
+    NESTED_OBJECT(ColorScheme, color_scheme, 4)
     BOOL_PROPERTY(isBusy, 5)
 
-    Task(QObject* parent = nullptr) : MetaQmlObject<TaskBasicType>(parent) {};
+    Task(QObject* parent = nullptr) : MetaQmlObject<TaskBasicType>(parent) {
+        REGISTER_NESTED_OBJECT(ColorScheme, color_scheme, 4);
+    };
 };
 
 class TaskModel : public MetaQmlModel<Task> {
